@@ -3,6 +3,8 @@ package main
 import (
     "net/http"
     "os/exec"
+    "log"
+    "time"
 
     "github.com/gin-gonic/gin"
 )
@@ -12,7 +14,8 @@ func main() {
 
     router.POST("/disable-internet", func(c *gin.Context) {
         var json struct {
-            Disable bool `json:"disable"`
+            Disable  bool `json:"disable"`
+            Duration int  `json:"duration"` // Duration in minutes
         }
 
         if err := c.ShouldBindJSON(&json); err != nil {
@@ -21,14 +24,27 @@ func main() {
         }
 
         if json.Disable {
-            // Replace "Ethernet" with the actual name of your network interface
             cmd := exec.Command("netsh", "interface", "set", "interface", "Ethernet", "admin=DISABLED")
             err := cmd.Run()
             if err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to disable internet"})
                 return
             }
-            c.JSON(http.StatusOK, gin.H{"status": "Internet disabled"})
+
+            if json.Duration > 0 {
+                go func() {
+                    time.Sleep(time.Duration(json.Duration) * time.Minute)
+                    cmd := exec.Command("netsh", "interface", "set", "interface", "Ethernet", "admin=ENABLED")
+                    err := cmd.Run()
+                    if err != nil {
+                        log.Printf("Failed to enable internet: %v", err)
+                        return
+                    }
+                    log.Println("Internet enabled")
+                }()
+            }
+
+            c.JSON(http.StatusOK, gin.H{"status": "Internet disabled", "enable_after_minutes": json.Duration})
         } else {
             c.JSON(http.StatusOK, gin.H{"status": "No action taken"})
         }
